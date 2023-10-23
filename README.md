@@ -13,3 +13,12 @@ See my Manifesto! It contains further explanation for what and why this exists! 
   * Movement is for my project! For example, there is no jumping; no momentum etc.
   * I combined classes to make the project easier to share; separation of concerns is not a thing in this demo!
 * I will accept PRs to help make this a more complete demo, but I won't discuss getting this to work in your project unless you very obviously know what you're talking about, sorry!
+
+## Required Input Map
+	move_forward
+	move_backward
+	strafe_left
+	strafe_right
+	sprint
+	(escape key will free mouse)
+	
