@@ -112,9 +112,9 @@ func _physics_process(delta):
 func move(intended_velocity : Vector3, delta : float):
 	var start_position := position
 
-	var lateral_translation = VectorFunctions.horz(intended_velocity * delta)
+	var lateral_translation = horz(intended_velocity) * delta 
 	var initial_lateral_translation = lateral_translation
-	var vertical_translation = VectorFunctions.vert(intended_velocity * delta)
+	var vertical_translation = vert(intended_velocity) * delta
 	var initial_vertical_translation = vertical_translation
 
 	grounded = false
@@ -139,7 +139,7 @@ func move(intended_velocity : Vector3, delta : float):
 
 		# De-jitter by just ignoring lateral movement
 		# (multiple steep slopes have been collided, but movement is very small)
-		if steep_slope_normals.size() > 1 and VectorFunctions.horz(position - start_position).length() < steep_slope_jitter_reduce:
+		if steep_slope_normals.size() > 1 and horz(position - start_position).length() < steep_slope_jitter_reduce:
 			position = start_position
 
 	# === Iterate Movement Vertically
@@ -185,6 +185,10 @@ func move(intended_velocity : Vector3, delta : float):
 		if !(after_snap_ground_test and after_snap_ground_test.get_normal(0).angle_to(Vector3.UP) < deg_to_rad(slope_limit)):
 			position = before_snap_pos
 
+func horz(v:Vector3):
+	return Vector3(v.x,0,v.z)
+func vert(v:Vector3):
+	return Vector3(0,v.y,0)
 
 # Moves are composed of multiple iterates
 # In each iteration, move until collision, then calculate and return the next movement
@@ -284,7 +288,7 @@ func move_iteration(movement_type: MovementType, initial_direction: Vector3, tra
 	elif surface_angle >= min_block_angle and surface_angle <= max_block_angle:
 		if movement_type == MovementType.LATERAL:
 			# "Wall off" the slope
-			projection_normal = VectorFunctions.horz(collisions.get_normal(0)).normalized()
+			projection_normal = horz(collisions.get_normal(0)).normalized()
 
 			# Or, "Wall off" the slope by figuring out the seam with the ground
 			if grounded and surface_angle < PI / 2:
@@ -325,7 +329,7 @@ func already_touched_slope_close_match(normal : Vector3) -> bool:
 # I wrote this a while ago in Unity
 # I ported it here but I only have a vague grasp of how it works
 func relative_slope_normal(slope_normal : Vector3, lateral_desired_direction : Vector3) -> Vector3:
-	var slope_normal_horz = VectorFunctions.horz(slope_normal)
+	var slope_normal_horz = horz(slope_normal)
 	var angle_to_straight = slope_normal_horz.angle_to(-lateral_desired_direction)
 	var angle_to_up = slope_normal.angle_to(Vector3.UP)
 	var complementary_angle_to_up = PI / 2 - angle_to_up
