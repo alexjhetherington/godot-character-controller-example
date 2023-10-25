@@ -1,5 +1,6 @@
 extends PhysicsBody3D
 
+@export var head : Node3D
 @export var orientation : Node3D
 @export var camera : Camera3D
 
@@ -43,6 +44,8 @@ var ground_normal : Vector3
 var steep_slope_normals : Array[Vector3]  = []
 var total_stepped_height : float = 0
 
+var escape_pressed : int
+
 enum MovementType {VERTICAL, LATERAL}
 
 func _ready():
@@ -59,15 +62,29 @@ func unlock_mouse():
 func _input(event):
 	if event is InputEventMouseMotion and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
 		orientation.rotate_y(-event.relative.x * mouse_sensitivity)
-		camera.rotate_x(-event.relative.y * mouse_sensitivity)
-		camera.rotation.x = clamp(camera.rotation.x, -1.2, 1.2)
+		head.rotate_x(-event.relative.y * mouse_sensitivity)
+		head.rotation.x = clamp(head.rotation.x, -1.2, 1.2)
 
 # TODO should this be in unhandled input?
 # Input buffering? lol lmao
 func get_input() -> Vector2:
+	if !Input.is_key_pressed(KEY_ESCAPE) && escape_pressed == 1:
+		if Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
+			unlock_mouse()
+		else:
+			lock_mouse()
+	
+	if Input.is_key_pressed(KEY_ESCAPE):
+		escape_pressed = 1
+	elif !Input.is_key_pressed(KEY_ESCAPE):
+		escape_pressed = 0
+		
+		
+	if Input.get_mouse_mode() != Input.MOUSE_MODE_CAPTURED:
+		return Vector2(0,0)
+	
 	if Input.is_action_just_pressed("sprint"):
 		at_max_speed = !at_max_speed
-
 	var input_dir : Vector2 = Vector2()
 	if Input.is_action_pressed("move_forward"):
 		input_dir += Vector2.UP
@@ -78,12 +95,10 @@ func get_input() -> Vector2:
 	if Input.is_action_pressed("strafe_right"):
 		input_dir -= Vector2.LEFT
 	input_dir = input_dir.normalized()
-
 	# Local rotation is fine given the parent isn't rotating ever
 	return input_dir.rotated(-orientation.rotation.y)
 
 func _physics_process(delta):
-
 	# Before Move
 	var _desired_horz_velocity = get_input()
 	var desired_horz_velocity := Vector3.ZERO
@@ -112,9 +127,9 @@ func _physics_process(delta):
 func move(intended_velocity : Vector3, delta : float):
 	var start_position := position
 
-	var lateral_translation = VectorFunctions.horz(intended_velocity * delta)
+	var lateral_translation = horz(intended_velocity) * delta 
 	var initial_lateral_translation = lateral_translation
-	var vertical_translation = VectorFunctions.vert(intended_velocity * delta)
+	var vertical_translation = vert(intended_velocity) * delta
 	var initial_vertical_translation = vertical_translation
 
 	grounded = false
@@ -139,7 +154,7 @@ func move(intended_velocity : Vector3, delta : float):
 
 		# De-jitter by just ignoring lateral movement
 		# (multiple steep slopes have been collided, but movement is very small)
-		if steep_slope_normals.size() > 1 and VectorFunctions.horz(position - start_position).length() < steep_slope_jitter_reduce:
+		if steep_slope_normals.size() > 1 and horz(position - start_position).length() < steep_slope_jitter_reduce:
 			position = start_position
 
 	# === Iterate Movement Vertically
@@ -168,6 +183,7 @@ func move(intended_velocity : Vector3, delta : float):
 	# Happens last so it doesn't affect velocity
 	# Keeps the character on slopes and on steps when travelling down
 	if grounded:
+		camera.damp()
 
 		# === Iterate Movement Vertically (Snap)
 		# We allow snap to slide down slopes
@@ -184,7 +200,13 @@ func move(intended_velocity : Vector3, delta : float):
 		var after_snap_ground_test := move_and_collide(Vector3.DOWN * safe_margin * 4, true, safe_margin * 2)
 		if !(after_snap_ground_test and after_snap_ground_test.get_normal(0).angle_to(Vector3.UP) < deg_to_rad(slope_limit)):
 			position = before_snap_pos
+	else:
+		camera.donmp()
 
+func horz(v:Vector3):
+	return Vector3(v.x,0,v.z)
+func vert(v:Vector3):
+	return Vector3(0,v.y,0)
 
 # Moves are composed of multiple iterates
 # In each iteration, move until collision, then calculate and return the next movement
@@ -217,6 +239,7 @@ func move_iteration(movement_type: MovementType, initial_direction: Vector3, tra
 
 		if do_step: # Keep track of stepepd distance to cancel it out later
 			total_stepped_height += position.y - temp_position.y
+			camera.damp()
 		else: # Reset and move normally
 			position = temp_position
 			collisions = move_and_collide(translation, false, safe_margin)
@@ -284,7 +307,7 @@ func move_iteration(movement_type: MovementType, initial_direction: Vector3, tra
 	elif surface_angle >= min_block_angle and surface_angle <= max_block_angle:
 		if movement_type == MovementType.LATERAL:
 			# "Wall off" the slope
-			projection_normal = VectorFunctions.horz(collisions.get_normal(0)).normalized()
+			projection_normal = horz(collisions.get_normal(0)).normalized()
 
 			# Or, "Wall off" the slope by figuring out the seam with the ground
 			if grounded and surface_angle < PI / 2:
@@ -325,7 +348,7 @@ func already_touched_slope_close_match(normal : Vector3) -> bool:
 # I wrote this a while ago in Unity
 # I ported it here but I only have a vague grasp of how it works
 func relative_slope_normal(slope_normal : Vector3, lateral_desired_direction : Vector3) -> Vector3:
-	var slope_normal_horz = VectorFunctions.horz(slope_normal)
+	var slope_normal_horz = horz(slope_normal)
 	var angle_to_straight = slope_normal_horz.angle_to(-lateral_desired_direction)
 	var angle_to_up = slope_normal.angle_to(Vector3.UP)
 	var complementary_angle_to_up = PI / 2 - angle_to_up
