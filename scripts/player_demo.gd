@@ -139,7 +139,7 @@ func move(intended_velocity : Vector3, delta : float):
 	# An initial grounded check is important because ground normal is used
 	# to detect seams with steep slopes; which often are collided with before the ground
 	if vertical_translation.y <= 0:
-		var initial_grounded_collision := move_and_collide(Vector3.DOWN * safe_margin * 2, true, safe_margin)
+		var initial_grounded_collision := move_and_collide(Vector3.DOWN * safe_margin * 4, true, safe_margin)
 		if initial_grounded_collision:
 			if initial_grounded_collision.get_normal(0).angle_to(Vector3.UP) < deg_to_rad(slope_limit):
 				grounded = true
@@ -197,7 +197,7 @@ func move(intended_velocity : Vector3, delta : float):
 			ground_snap_iterations += 1
 
 		# If snap doesn't end by touching the ground - don't snap
-		var after_snap_ground_test := move_and_collide(Vector3.DOWN * safe_margin * 4, true, safe_margin * 2)
+		var after_snap_ground_test := move_and_collide(Vector3.DOWN * safe_margin * 4, true, safe_margin)
 		if !(after_snap_ground_test and after_snap_ground_test.get_normal(0).angle_to(Vector3.UP) < deg_to_rad(slope_limit)):
 			position = before_snap_pos
 	else:
