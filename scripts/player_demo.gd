@@ -225,7 +225,7 @@ func move_iteration(movement_type: MovementType, initial_direction: Vector3, tra
 		var step_up_collisions := move_and_collide(Vector3.UP * step_height, false, safe_margin)
 		if (step_up_collisions):
 			current_step_height = step_up_collisions.get_travel().length()
-		var _raised_forward_collisions := move_and_collide(translation, false, safe_margin)
+		var raised_forward_collisions := move_and_collide(translation, false, safe_margin)
 		var down_collision := move_and_collide(Vector3.DOWN * current_step_height, false, safe_margin)
 
 		# Only step if the step algorithm landed on a walkable surface
@@ -239,6 +239,7 @@ func move_iteration(movement_type: MovementType, initial_direction: Vector3, tra
 
 		if do_step: # Keep track of stepepd distance to cancel it out later
 			total_stepped_height += position.y - temp_position.y
+			collisions = raised_forward_collisions
 			camera.damp()
 		else: # Reset and move normally
 			position = temp_position
