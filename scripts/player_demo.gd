@@ -212,6 +212,8 @@ func vert(v:Vector3):
 # In each iteration, move until collision, then calculate and return the next movement
 func move_iteration(movement_type: MovementType, initial_direction: Vector3, translation: Vector3):
 
+	# PHASE 1 - Actually move
+
 	var collisions : KinematicCollision3D
 
 	# If Lateral movement, try stepping
@@ -229,12 +231,12 @@ func move_iteration(movement_type: MovementType, initial_direction: Vector3, tra
 		var down_collision := move_and_collide(Vector3.DOWN * current_step_height, false, safe_margin)
 
 		# Only step if the step algorithm landed on a walkable surface
-		# AND the walk *doesn't* land on a walkable surface
+		# AND the walk lands on a non-walkable surface
 		# This stops stepping up ramps
 		if (down_collision and
 				down_collision.get_normal(0).angle_to(Vector3.UP) < deg_to_rad(slope_limit) and
-				(!walk_test_collision or
-				!walk_test_collision.get_normal(0).angle_to(Vector3.UP) < deg_to_rad(slope_limit))):
+				walk_test_collision and
+				!walk_test_collision.get_normal(0).angle_to(Vector3.UP) < deg_to_rad(slope_limit)):
 			do_step = true
 
 		if do_step: # Keep track of stepepd distance to cancel it out later
@@ -258,6 +260,8 @@ func move_iteration(movement_type: MovementType, initial_direction: Vector3, tra
 	if collisions.get_normal(0).angle_to(Vector3.UP) < deg_to_rad(slope_limit):
 		grounded = true
 		ground_normal = collisions.get_normal(0)
+
+	# PHASE 2 - Figure out next iteration direction
 
 	# Surface Angle will be used to "block" movement in some directions
 	var surface_angle = collisions.get_normal(0).angle_to(Vector3.UP)
