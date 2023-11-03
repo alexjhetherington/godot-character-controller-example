@@ -73,16 +73,16 @@ func get_input() -> Vector2:
 			unlock_mouse()
 		else:
 			lock_mouse()
-	
+
 	if Input.is_key_pressed(KEY_ESCAPE):
 		escape_pressed = 1
 	elif !Input.is_key_pressed(KEY_ESCAPE):
 		escape_pressed = 0
-		
-		
+
+
 	if Input.get_mouse_mode() != Input.MOUSE_MODE_CAPTURED:
 		return Vector2(0,0)
-	
+
 	if Input.is_action_just_pressed("sprint"):
 		at_max_speed = !at_max_speed
 	var input_dir : Vector2 = Vector2()
@@ -127,7 +127,7 @@ func _physics_process(delta):
 func move(intended_velocity : Vector3, delta : float):
 	var start_position := position
 
-	var lateral_translation = horz(intended_velocity) * delta 
+	var lateral_translation = horz(intended_velocity) * delta
 	var initial_lateral_translation = lateral_translation
 	var vertical_translation = vert(intended_velocity) * delta
 	var initial_vertical_translation = vertical_translation
