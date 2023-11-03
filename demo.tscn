@@ -71,6 +71,8 @@ environment = SubResource("Environment_1awft")
 
 [node name="player" parent="." instance=ExtResource("1_pikkw")]
 physics_material_override = SubResource("PhysicsMaterial_a1qcx")
+snap_to_ground_distance = 0.4
+steep_slope_jitter_reduce = 0.0
 
 [node name="Floor" type="StaticBody3D" parent="."]
 

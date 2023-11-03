@@ -14,7 +14,6 @@ head = NodePath("Orientation/Head")
 orientation = NodePath("Orientation")
 camera = NodePath("Orientation/Head/Smoother/Camera3D")
 collision_shape = NodePath("CollisionLarge")
-snap_to_ground_distance = 0.4
 
 [node name="CollisionLarge" type="CollisionShape3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
