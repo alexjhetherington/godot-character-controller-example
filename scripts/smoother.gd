@@ -14,20 +14,19 @@ func _ready():
 
 
 # Called every frame. 'delta' is the elapsed time since the previous frame.
-func _process(delta):
-	if target == null: 
+func _process(_delta):
+	if target == null:
 		return
 	var f = Engine.get_physics_interpolation_fraction()
-	var tr: Transform3D = Transform3D()
-	
-	var ptDiff = currTransform.origin - prevTransform.origin
-	tr.origin = prevTransform.origin + (ptDiff * f)
-	
-	tr.basis = _LerpBasis(prevTransform.basis, currTransform.basis, f)
+	var new_transform: Transform3D = Transform3D()
 
-	transform = tr
-	
-func _physics_process(delta):	
+	var ptDiff = currTransform.origin - prevTransform.origin
+	new_transform.origin = prevTransform.origin + (ptDiff * f)
+	new_transform.basis = _LerpBasis(prevTransform.basis, currTransform.basis, f)
+
+	transform = new_transform
+
+func _physics_process(_delta):
 	prevTransform = currTransform
 	currTransform = target.global_transform
 

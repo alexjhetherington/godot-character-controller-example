@@ -6,7 +6,7 @@
 
 [sub_resource type="CylinderShape3D" id="CylinderShape3D_pbjdi"]
 height = 1.8
-radius = 0.25
+radius = 0.3
 
 [node name="player" type="StaticBody3D" node_paths=PackedStringArray("head", "orientation", "camera", "collision_shape")]
 script = ExtResource("1_djvrb")

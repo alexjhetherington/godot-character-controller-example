@@ -4,30 +4,55 @@ extends PhysicsBody3D
 @export var orientation : Node3D
 @export var camera : Camera3D
 
+## A reference to the collision shape this physics body is using
+## (It's just a bit easier rather than aquiring the reference via code)
 @export var collision_shape : CollisionShape3D
 
+## The character will be blocked from moving up slopes steeper than this angle
+## The character will be not be flagged as 'grounded' when stood on slopes steeper than this angle
 @export var slope_limit : float = 45
 
+## The character will automatically adjust height to step over obstacles this high
 @export var step_height = 0.2
+
+## When grounded, the character will snap down this distance
+## This keeps the character on steps, slopes, and helps keep behaviour consistent
 @export var snap_to_ground_distance = 0.2
 
-# Stop movement when the character touches at least 2 steep slopes in one
-# movement and movement is under this threshold.
+
+@export_group("Advanced")
+## Stop movement under this distance, but only if the movement touches at least 2 steep slopes
+## The slope movement code in this class does not handle all edge cases; this is a hack to eliminate
+## jitter movement
 @export var steep_slope_jitter_reduce = 0.03
 
-# The godot move_and_collide method has built in depenetration
-@export var safe_margin = 0.001
+## The godot move_and_collide method has built in depenetration
+## Higher values can eliminate jittery movement against obscure geometry, but in my experience
+## this comes at the cost of making movement across flush collision planes a bit unreliable
+@export var depenetration_margin = 0.001
 
-# If a collision happens within this distance of the bottom of the collider
-# it's considered the "bottom"
-# This value is used to determine if slopes should actually make the player
-# rise, or if they should be considered a wall, in the case where the slope
-# is above the players feet
+## The distance under the player to check for ground at the start of movement
+## This is in addition to the usual method of setting grounded state by collision
+@export var ground_cast_distance = 0.004
+
+## If a collision happens within this distance of the bottom of the collider
+## it's considered the "bottom"
+## This value is used to determine if slopes should actually make the player
+## rise, or if they should be considered a wall, in the case where the slope
+## is above the players feet
 @export var bottom_height = 0.05
 
-# How many times to move_and_collide. The algorithm early exits anyway
-# The value of turning this up is to make movement in very complicated terrain more
-# accurate. 4 is a decent number!
+## The movement code in this class tries to adjust translation to confirm to the collision plane
+## This means the same plane should never be hit more than once within 1 frame
+## This sometimes happens anyway, typically when there is a small safe margin
+## If it happens, the movement will be blocked and the rest of the movement iterations will be
+## consumed
+## This is a little hack to slightly adjust the translation to break out of this infinite loop
+@export var same_surface_adjust_distance = 0.001
+
+## How many times to move_and_collide. The algorithm early exits anyway
+## The value of turning this up is to make movement in very complicated terrain more
+## accurate. 4 is a decent number for low poly terrain!
 @export var max_iteration_count = 4
 
 
@@ -45,6 +70,9 @@ var steep_slope_normals : Array[Vector3]  = []
 var total_stepped_height : float = 0
 
 var escape_pressed : int
+var vertical_collisions : Array[KinematicCollision3D]
+var lateral_collisions : Array[KinematicCollision3D]
+var snap_collisions : Array[KinematicCollision3D]
 
 enum MovementType {VERTICAL, LATERAL}
 
@@ -63,7 +91,7 @@ func _input(event):
 	if event is InputEventMouseMotion and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
 		orientation.rotate_y(-event.relative.x * mouse_sensitivity)
 		head.rotate_x(-event.relative.y * mouse_sensitivity)
-		head.rotation.x = clamp(head.rotation.x, -1.2, 1.2)
+		head.rotation.x = clamp(head.rotation.x, -1.4, 1.4)
 
 # TODO should this be in unhandled input?
 # Input buffering? lol lmao
@@ -79,12 +107,12 @@ func get_input() -> Vector2:
 	elif !Input.is_key_pressed(KEY_ESCAPE):
 		escape_pressed = 0
 
-
 	if Input.get_mouse_mode() != Input.MOUSE_MODE_CAPTURED:
 		return Vector2(0,0)
 
 	if Input.is_action_just_pressed("sprint"):
 		at_max_speed = !at_max_speed
+
 	var input_dir : Vector2 = Vector2()
 	if Input.is_action_pressed("move_forward"):
 		input_dir += Vector2.UP
@@ -95,10 +123,12 @@ func get_input() -> Vector2:
 	if Input.is_action_pressed("strafe_right"):
 		input_dir -= Vector2.LEFT
 	input_dir = input_dir.normalized()
+
 	# Local rotation is fine given the parent isn't rotating ever
 	return input_dir.rotated(-orientation.rotation.y)
 
 func _physics_process(delta):
+
 	# Before Move
 	var _desired_horz_velocity = get_input()
 	var desired_horz_velocity := Vector3.ZERO
@@ -127,19 +157,23 @@ func _physics_process(delta):
 func move(intended_velocity : Vector3, delta : float):
 	var start_position := position
 
-	var lateral_translation = horz(intended_velocity) * delta
+	var lateral_translation = horz(intended_velocity * delta)
 	var initial_lateral_translation = lateral_translation
-	var vertical_translation = vert(intended_velocity) * delta
+	var vertical_translation = vert(intended_velocity * delta)
 	var initial_vertical_translation = vertical_translation
 
 	grounded = false
 	steep_slope_normals = []
 	total_stepped_height = 0
 
+	vertical_collisions.clear()
+	lateral_collisions.clear()
+	snap_collisions.clear()
+
 	# An initial grounded check is important because ground normal is used
 	# to detect seams with steep slopes; which often are collided with before the ground
 	if vertical_translation.y <= 0:
-		var initial_grounded_collision := move_and_collide(Vector3.DOWN * safe_margin * 4, true, safe_margin)
+		var initial_grounded_collision := move_and_collide(Vector3.DOWN * ground_cast_distance, true, depenetration_margin)
 		if initial_grounded_collision:
 			if initial_grounded_collision.get_normal(0).angle_to(Vector3.UP) < deg_to_rad(slope_limit):
 				grounded = true
@@ -149,7 +183,7 @@ func move(intended_velocity : Vector3, delta : float):
 	var lateral_iterations = 0
 	while lateral_translation.length() > 0 and lateral_iterations < max_iteration_count:
 
-		lateral_translation = move_iteration(MovementType.LATERAL, initial_lateral_translation, lateral_translation)
+		lateral_translation = move_iteration(MovementType.LATERAL, lateral_collisions, initial_lateral_translation, lateral_translation)
 		lateral_iterations += 1
 
 		# De-jitter by just ignoring lateral movement
@@ -161,7 +195,7 @@ func move(intended_velocity : Vector3, delta : float):
 	var vertical_iterations = 0
 	while vertical_translation.length() > 0 and vertical_iterations < max_iteration_count:
 
-		vertical_translation = move_iteration(MovementType.VERTICAL, initial_vertical_translation, vertical_translation)
+		vertical_translation = move_iteration(MovementType.VERTICAL, vertical_collisions, initial_vertical_translation, vertical_translation)
 		vertical_iterations += 1
 
 	# Don't include step height in actual velocity
@@ -193,26 +227,31 @@ func move(intended_velocity : Vector3, delta : float):
 		var ground_snap_translation = Vector3.DOWN * snap_to_ground_distance
 		while ground_snap_translation.length() > 0 and ground_snap_iterations < max_iteration_count:
 
-			ground_snap_translation = move_iteration(MovementType.VERTICAL, Vector3.DOWN, ground_snap_translation)
+			ground_snap_translation = move_iteration(MovementType.VERTICAL, snap_collisions, Vector3.DOWN, ground_snap_translation)
 			ground_snap_iterations += 1
 
-		# If snap doesn't end by touching the ground - don't snap
-		var after_snap_ground_test := move_and_collide(Vector3.DOWN * safe_margin * 4, true, safe_margin)
-		if !(after_snap_ground_test and after_snap_ground_test.get_normal(0).angle_to(Vector3.UP) < deg_to_rad(slope_limit)):
+		# Decide whether to keep the snap or not
+		if snap_collisions.is_empty():
+			var after_snap_ground_test := move_and_collide(Vector3.DOWN * ground_cast_distance, true, depenetration_margin)
+			if after_snap_ground_test and after_snap_ground_test.get_normal(0).angle_to(Vector3.UP) < deg_to_rad(slope_limit):
+				# There was no snap collisions, but there is ground underneath
+				# This can be due to an edge case where the snap movement falls through the ground
+				# Why does this check not fall through the ground? I don't know
+				# In any case, manually set the y
+				position.y = after_snap_ground_test.get_position(0).y
+			else:
+				# No snap collisions and no floor, reset
+				position = before_snap_pos
+		elif !(snap_collisions[snap_collisions.size() - 1].get_normal(0).angle_to(Vector3.UP) < deg_to_rad(slope_limit)):
+			# Collided with steep ground, reset
 			position = before_snap_pos
 	else:
 		camera.donmp()
 
-func horz(v:Vector3):
-	return Vector3(v.x,0,v.z)
-func vert(v:Vector3):
-	return Vector3(0,v.y,0)
 
 # Moves are composed of multiple iterates
 # In each iteration, move until collision, then calculate and return the next movement
-func move_iteration(movement_type: MovementType, initial_direction: Vector3, translation: Vector3):
-
-	# PHASE 1 - Actually move
+func move_iteration(movement_type: MovementType, collision_array : Array, initial_direction: Vector3, translation: Vector3) -> Vector3:
 
 	var collisions : KinematicCollision3D
 
@@ -221,14 +260,14 @@ func move_iteration(movement_type: MovementType, initial_direction: Vector3, tra
 		var do_step = false
 		var temp_position = position
 
-		var walk_test_collision = move_and_collide(translation, true, safe_margin)
+		var walk_test_collision = move_and_collide(translation, true, 0)
 
 		var current_step_height = step_height
-		var step_up_collisions := move_and_collide(Vector3.UP * step_height, false, safe_margin)
+		var step_up_collisions := move_and_collide(Vector3.UP * step_height, false, 0)
 		if (step_up_collisions):
 			current_step_height = step_up_collisions.get_travel().length()
-		var raised_forward_collisions := move_and_collide(translation, false, safe_margin)
-		var down_collision := move_and_collide(Vector3.DOWN * current_step_height, false, safe_margin)
+		var raised_forward_collisions := move_and_collide(translation, false, 0)
+		var down_collision := move_and_collide(Vector3.DOWN * current_step_height, false, 0)
 
 		# Only step if the step algorithm landed on a walkable surface
 		# AND the walk lands on a non-walkable surface
@@ -245,23 +284,23 @@ func move_iteration(movement_type: MovementType, initial_direction: Vector3, tra
 			camera.damp()
 		else: # Reset and move normally
 			position = temp_position
-			collisions = move_and_collide(translation, false, safe_margin)
+			collisions = move_and_collide(translation, false, depenetration_margin)
 
 	# If Vertical movement, just move; no need to step
 	else:
-		collisions = move_and_collide(translation, false, safe_margin)
+		collisions = move_and_collide(translation, false, depenetration_margin)
 
 	# Moved all remaining distance
 	if !collisions:
 		return Vector3.ZERO
+
+	collision_array.append(collisions)
 
 	# If any ground collisions happen during movement, the character is grounded
 	# Imporant to keep this up-to-date rather than just rely on the initial grounded state
 	if collisions.get_normal(0).angle_to(Vector3.UP) < deg_to_rad(slope_limit):
 		grounded = true
 		ground_normal = collisions.get_normal(0)
-
-	# PHASE 2 - Figure out next iteration direction
 
 	# Surface Angle will be used to "block" movement in some directions
 	var surface_angle = collisions.get_normal(0).angle_to(Vector3.UP)
@@ -337,10 +376,17 @@ func move_iteration(movement_type: MovementType, initial_direction: Vector3, tra
 	var continued_translation = projection_plane.project(collisions.get_remainder())
 	var initial_influenced_translation = projection_plane.project(initial_direction)
 
+	var next_translation : Vector3
 	if initial_influenced_translation.dot(continued_translation) >= 0:
-		return continued_translation
+		next_translation = continued_translation
 	else:
-		return initial_influenced_translation.normalized() * continued_translation.length()
+		next_translation = initial_influenced_translation.normalized() * continued_translation.length()
+
+	# See same_surface_adjust_distance
+	if next_translation.normalized() == translation.normalized():
+		next_translation += collisions.get_normal(0) * same_surface_adjust_distance
+
+	return next_translation
 
 
 func already_touched_slope_close_match(normal : Vector3) -> bool:
@@ -378,3 +424,9 @@ func relative_slope_normal(slope_normal : Vector3, lateral_desired_direction : V
 	var emulated_normal = vector_up_slope.rotated(rotation_axis, PI / 2)
 
 	return emulated_normal.normalized()
+
+func horz(v:Vector3):
+	return Vector3(v.x,0,v.z)
+
+func vert(v:Vector3):
+	return Vector3(0,v.y,0)

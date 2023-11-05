@@ -8,11 +8,11 @@ See my Manifesto! It contains further explanation for what and why this exists! 
 
 ## Limitations and Considerations
 * ***IMPORTANT*** Godot Jolt is absolutely mandatory for any physics queries not using box shapes (this uses a cylinder shape): https://github.com/godot-jolt/godot-jolt
-* I roughly copy and pasted the code from my main project. This means:
-  * There may be broken references if you try to actually use this code (in the scene, input, code etc)
-  * Movement is for my project! For example, there is no jumping; no momentum etc.
-  * I combined classes to make the project easier to share; separation of concerns is not a thing in this demo!
+* Jumping isn't implemeted; in my experience introducing jumping immediately forces you to make opinionated decisions that I don't want to address in this repo
 * I will accept PRs to help make this a more complete demo, but I won't discuss getting this to work in your project unless you very obviously know what you're talking about, sorry!
+
+## Jittering and Sticking
+If you see jittering and sticking behaviour check the advanced options on the character controller (see the tooltips!). Adjusting the cylinder radius can help to.
 
 ## Required Input Map
 	move_forward
@@ -21,4 +21,4 @@ See my Manifesto! It contains further explanation for what and why this exists! 
 	strafe_right
 	sprint
 	(escape key will free mouse)
-	
+
