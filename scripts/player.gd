@@ -307,10 +307,14 @@ func move_iteration(
 		initial_direction: Vector3, 
 		translation: Vector3) -> Vector3:
 		
+	var move_start = position
 	var collisions := move_and_collide(translation, false, depenetration_margin)
 
 	# Moved all remaining distance
 	if !collisions:
+		if (position - move_start).length() - translation.length() > 0.1:
+			push_warning("Actual move was larger than translation; do you have Jolt enabled?")
+		
 		return Vector3.ZERO
 		
 	var collision_normal : Vector3
