@@ -424,16 +424,26 @@ func already_touched_slope_close_match(normal : Vector3) -> bool:
 			return true
 
 	return false
-	
+
+
 # HACK Bottom collision on cylinders reports strange normals, so just raycast the collision point
 # to find the correct normal (only when we are travelling down and expect the collision to be on the bottom)	
 func down_collision_normal(collision: KinematicCollision3D) -> Vector3:
 	var space_state = get_world_3d().direct_space_state
-	var ray_params := PhysicsRayQueryParameters3D.create(collision.get_position() + Vector3.UP * 0.1, collision.get_position() - Vector3.UP * 0.1, 1)
-	var result = space_state.intersect_ray(ray_params)
+	var ray_params_precise := PhysicsRayQueryParameters3D.create(collision.get_position() + Vector3.UP * 0.1, collision.get_position() - Vector3.UP * 0.1, 1)
+	var result_precise = space_state.intersect_ray(ray_params_precise)
 	
-	if result and collision.get_position().y < position.y + bottom_height:
-		return result["normal"]
+	# HACK if ray does not collide, try a bit further out
+	var ray_params_outer:= PhysicsRayQueryParameters3D.create(
+		collision.get_position() + horz(collision.get_position() - position).normalized() * 0.01 + Vector3.UP * 0.1, 
+		collision.get_position() - Vector3.UP * 0.1, 
+		1)
+	var result_outer = space_state.intersect_ray(ray_params_outer)
+	
+	if result_precise and collision.get_position().y < position.y + bottom_height:
+		return result_precise["normal"]
+	elif result_outer and collision.get_position().y < position.y + bottom_height:
+		return result_outer["normal"]
 	else:
 		return collision.get_normal() # Should never be required... but sometimes it is (maybe if you accidentally exclude a collider)
 		
