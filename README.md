@@ -21,4 +21,3 @@ If you see jittering and sticking behaviour check the advanced options on the ch
 	strafe_right
 	sprint
 	(escape key will free mouse)
-
