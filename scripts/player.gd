@@ -19,10 +19,8 @@ class_name Player
 ## The character will automatically adjust height to step over obstacles this high
 @export var enable_step : bool = true
 
-## Represents the players 'feet'
-## When stepping is enabled, this is the height the player can step over
-## It also controls collision logic; any collision above the 'feet' will be considered a wall
-@export var bottom_height : float = 0.2
+## When step is enabled, the player will step up this height
+@export var step_height : float = 0.2
 
 ## When grounded, the character will snap down this distance
 ## This keeps the character on steps, slopes, and helps keep behaviour consistent
@@ -70,8 +68,8 @@ class_name Player
 ## After stepping give a final small nudge forward  (this is essentially manual depenetration)
 @export var step_forward_adjust : float = 0.03
 
-## If the stepped amount is lower than this, don't step and just use normal movement
-@export var step_minimum_height_times_10 : float = 0.01
+## Collisions above this height on the cylinder will be treated as walls
+@export var bottom_margin : float = 0.05
 
 var gravity : float = 9.8
 var speed : float = 2
@@ -85,9 +83,14 @@ var steep_slope_normals : Array[Vector3]  = []
 var total_stepped_height : float = 0
 var _snapped_last_call : bool = false
 
-var vertical_collisions : Array[KinematicCollision3D]
-var lateral_collisions : Array[KinematicCollision3D]
-var snap_collisions : Array[KinematicCollision3D]
+var vertical_collisions_points : Array[Vector3]
+var vertical_collisions_normals : Array[Vector3]
+
+var lateral_collisions_points : Array[Vector3]
+var lateral_collisions_normals : Array[Vector3]
+
+var snap_collisions_points : Array[Vector3]
+var snap_collisions_normals : Array[Vector3]
 
 enum MovementType {VERTICAL, LATERAL}
 
@@ -171,7 +174,12 @@ func move(intended_velocity : Vector3, delta : float):
 	var walk_lateral_iterations : int = 0
 	while walk_lateral_translation.length() > 0 and walk_lateral_iterations < max_iteration_count:
 
-		walk_lateral_translation = move_iteration(MovementType.LATERAL, lateral_collisions, initial_lateral_translation, walk_lateral_translation)
+		walk_lateral_translation = move_iteration(
+			MovementType.LATERAL, 
+			lateral_collisions_normals, 
+			lateral_collisions_points,
+			initial_lateral_translation, 
+			walk_lateral_translation)
 		walk_lateral_iterations += 1
 		
 		# De-jitter by just ignoring lateral movement
@@ -181,8 +189,8 @@ func move(intended_velocity : Vector3, delta : float):
 
 	var try_step = false
 	if enable_step:
-		for lateral_collision in lateral_collisions:
-			if !collision_normal_walkable(lateral_collision.get_normal()):
+		for lateral_collision_normal in lateral_collisions_normals:
+			if !collision_normal_walkable(lateral_collision_normal):
 				try_step = true
 				break
 
@@ -190,14 +198,15 @@ func move(intended_velocity : Vector3, delta : float):
 		var walk_position := position
 		var walk_grounded := grounded
 		var walk_steep_slope_normals := steep_slope_normals
-		var walk_lateral_collisions := lateral_collisions
+		var walk_lateral_collisions_normals : Array[Vector3] = lateral_collisions_normals.duplicate()
+		var walk_lateral_collisions_points : Array[Vector3] = lateral_collisions_points.duplicate()
 		
 		position = start_position
 		
 		initialise_grounded(intended_velocity)
 	
-		var current_step_height := bottom_height
-		var step_up_collisions := move_and_collide(Vector3.UP * bottom_height, false, 0)
+		var current_step_height := step_height
+		var step_up_collisions := move_and_collide(Vector3.UP * step_height, false, 0)
 		if (step_up_collisions):
 			current_step_height = step_up_collisions.get_travel().length()
 
@@ -209,7 +218,8 @@ func move(intended_velocity : Vector3, delta : float):
 			step_lateral_final_translation_direction = step_lateral_translation.normalized()
 			step_lateral_translation = move_iteration(
 				MovementType.LATERAL, 
-				lateral_collisions, 
+				lateral_collisions_normals,
+				lateral_collisions_points, 
 				initial_lateral_translation, 
 				step_lateral_translation
 			)
@@ -218,14 +228,25 @@ func move(intended_velocity : Vector3, delta : float):
 		# Extra iteration
 		move_iteration(
 				MovementType.LATERAL, 
-				lateral_collisions, 
+				lateral_collisions_normals,
+				lateral_collisions_points, 
 				initial_lateral_translation, 
 				step_lateral_final_translation_direction * step_forward_final_iteration
 			)
-		
+			
+		var walk_lateral_collions_not_walkable = 0
+		for collision_normal in walk_lateral_collisions_normals:
+			if !collision_normal_walkable(collision_normal):
+				walk_lateral_collions_not_walkable += 1
+				
+		var stepped_lateral_collions_not_walkable = 0
+		for collision_normal in lateral_collisions_normals:
+			if !collision_normal_walkable(collision_normal):
+				stepped_lateral_collions_not_walkable += 1
+				
 		var down_collision := move_and_collide(Vector3.DOWN * current_step_height, false, 0)
 		if (down_collision and collision_normal_walkable(down_collision_normal(down_collision)) and 
-				position.y > start_position.y + (step_minimum_height_times_10 / 10)):
+				stepped_lateral_collions_not_walkable < walk_lateral_collions_not_walkable):
 			total_stepped_height = position.y - start_position.y
 			
 			move_and_collide(Vector3.UP * step_up_adjust, false, 0)
@@ -234,14 +255,21 @@ func move(intended_velocity : Vector3, delta : float):
 			position = walk_position
 			grounded = walk_grounded
 			steep_slope_normals = walk_steep_slope_normals
-			lateral_collisions = walk_lateral_collisions
+			lateral_collisions_normals = walk_lateral_collisions_normals
+			lateral_collisions_points = walk_lateral_collisions_points
+			
 
 	# === Iterate Movement Vertically
 	var vertical_iterations : int = 0
 	var vertical_translation := initial_vertical_translation
 	while vertical_translation.length() > 0 and vertical_iterations < max_iteration_count:
 
-		vertical_translation = move_iteration(MovementType.VERTICAL, vertical_collisions, initial_vertical_translation, vertical_translation)
+		vertical_translation = move_iteration(
+			MovementType.VERTICAL, 
+			vertical_collisions_normals, 
+			vertical_collisions_points, 
+			initial_vertical_translation, 
+			vertical_translation)
 		vertical_iterations += 1
 
 	# Don't include step height in actual velocity
@@ -274,11 +302,16 @@ func move(intended_velocity : Vector3, delta : float):
 		
 		while ground_snap_translation.length() > 0 and ground_snap_iterations < max_iteration_count:
 
-			ground_snap_translation = move_iteration(MovementType.VERTICAL, snap_collisions, Vector3.DOWN, ground_snap_translation)
+			ground_snap_translation = move_iteration(
+				MovementType.VERTICAL, 
+				snap_collisions_normals,
+				snap_collisions_points,
+				 Vector3.DOWN, 
+				ground_snap_translation)
 			ground_snap_iterations += 1
 
 		# Decide whether to keep the snap or not
-		if snap_collisions.is_empty():
+		if snap_collisions_normals.is_empty():
 			var after_snap_ground_test := move_and_collide(Vector3.DOWN * ground_cast_distance, true, depenetration_margin)
 			if after_snap_ground_test and collision_normal_walkable(down_collision_normal(after_snap_ground_test)):
 				# There was no snap collisions, but there is ground underneath
@@ -291,7 +324,7 @@ func move(intended_velocity : Vector3, delta : float):
 				# No snap collisions and no floor, reset
 				position = before_snap_pos
 				_snapped_last_call = false
-		elif !(collision_normal_walkable(down_collision_normal(snap_collisions[snap_collisions.size() - 1]))):
+		elif !(collision_normal_walkable(snap_collisions_normals[snap_collisions_normals.size() - 1])):
 			# Collided with steep ground, reset
 			position = before_snap_pos
 			_snapped_last_call = false
@@ -303,27 +336,40 @@ func move(intended_velocity : Vector3, delta : float):
 # In each iteration, move until collision, then calculate and return the next movement
 func move_iteration(
 		movement_type: MovementType, 
-		collision_array : Array, 
+		collision_normals_array : Array[Vector3], 
+		collision_points_array : Array[Vector3], 
 		initial_direction: Vector3, 
 		translation: Vector3) -> Vector3:
 		
 	var move_start = position
-	var collisions := move_and_collide(translation, false, depenetration_margin)
+	var collision := move_and_collide(translation, false, depenetration_margin)
 
 	# Moved all remaining distance
-	if !collisions:
+	if !collision:
 		if (position - move_start).length() - translation.length() > 0.1:
 			push_warning("Actual move was larger than translation; do you have Jolt enabled?")
 		
 		return Vector3.ZERO
 		
-	var collision_normal : Vector3
+	var cylinder := collision_shape.shape as CylinderShape3D
+	var collision_point := collision.get_position(0)
+		
+	var collision_on_side := false
+	var collision_normal := collision.get_normal(0)
 	if movement_type == MovementType.VERTICAL and translation.y <= 0: 
-		collision_normal = down_collision_normal(collisions)
-	else:
-		collision_normal = collisions.get_normal(0)
-
-	collision_array.append(collisions)
+		collision_normal = down_collision_normal(collision)
+	
+	# If collision happens on the "side" of the cylinder, treat it as a vertical
+	# wall in all cases (we use the tangent of the cylinder)
+	if (movement_type == MovementType.LATERAL and
+		(collision_point.y > (collision_shape.global_position.y - cylinder.height / 2) + bottom_margin)):
+			collision_normal = collision_shape.global_position - collision_point
+			collision_normal.y = 0
+			collision_normal = collision_normal.normalized()
+			collision_on_side = true
+		
+	collision_normals_array.append(collision_normal)
+	collision_points_array.append(collision_point)
 
 	# If any ground collisions happen during movement, the character is grounded
 	# Imporant to keep this up-to-date rather than just rely on the initial grounded state
@@ -365,16 +411,8 @@ func move_iteration(
 	# I'm leaving it here to help understand the algorithm
 	var projection_normal := collision_normal
 
-	var cylinder := collision_shape.shape as CylinderShape3D
-	var collision_point := collisions.get_position(0)
-
-	# If collision happens on the "side" of the cylinder, treat it as a vertical
-	# wall in all cases (we use the tangent of the cylinder)
-	if (movement_type == MovementType.LATERAL and
-		(collision_point.y > (collision_shape.global_position.y - cylinder.height / 2) + bottom_height)):
-			projection_normal = collision_shape.global_position - collision_point
-			projection_normal.y = 0
-			projection_normal = projection_normal.normalized()
+	if collision_on_side:
+		pass # TODO refactor this if else statement
 
 	# Otherwise, determine if the surface is a blocking surface
 	elif surface_angle >= min_block_angle and surface_angle <= max_block_angle:
@@ -402,7 +440,7 @@ func move_iteration(
 
 	# Don't let one move call ping pong around
 	var projection_plane := Plane(projection_normal)
-	var continued_translation := projection_plane.project(collisions.get_remainder())
+	var continued_translation := projection_plane.project(collision.get_remainder())
 	var initial_influenced_translation := projection_plane.project(initial_direction)
 
 	var next_translation : Vector3
@@ -440,9 +478,9 @@ func down_collision_normal(collision: KinematicCollision3D) -> Vector3:
 		1)
 	var result_outer = space_state.intersect_ray(ray_params_outer)
 	
-	if result_precise and collision.get_position().y < position.y + bottom_height:
+	if result_precise and collision.get_position().y < position.y + bottom_margin:
 		return result_precise["normal"]
-	elif result_outer and collision.get_position().y < position.y + bottom_height:
+	elif result_outer and collision.get_position().y < position.y + bottom_margin:
 		return result_outer["normal"]
 	else:
 		return collision.get_normal() # Should never be required... but sometimes it is (maybe if you accidentally exclude a collider)
@@ -456,9 +494,12 @@ func initialise_grounded(translation: Vector3) -> void:
 	steep_slope_normals = []
 	total_stepped_height = 0
 
-	vertical_collisions.clear()
-	lateral_collisions.clear()
-	snap_collisions.clear()
+	vertical_collisions_normals.clear()
+	vertical_collisions_points.clear()
+	lateral_collisions_normals.clear()
+	lateral_collisions_points.clear()
+	snap_collisions_normals.clear()
+	snap_collisions_points.clear()
 	
 	# HACK Use last frames grounded state and normal
 	# sometimes the algorithm snaps the player in a position that is not detected as grounded
